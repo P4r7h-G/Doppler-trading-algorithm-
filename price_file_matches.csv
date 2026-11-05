@@ -1,0 +1,13 @@
+filename,ticker,match_date,match_open,match_high,match_low,match_close,match_reference_url,identity_status
+HistoricalData_1789061958891.csv,AAPL,2026-09-09,315.485,319.15,309.90,315.34,https://investor.apple.com/stock-price/,matched_external_ohlc_not_original_download_metadata
+HistoricalData_1789062819480.csv,NVDA,2026-09-09,225.275,226.18,223.46,223.67,https://stockanalysis.com/stocks/nvda/history/,matched_external_ohlc_not_original_download_metadata
+HistoricalData_1789062847911.csv,TSLA,2026-09-09,368.25,375.44,366.00,367.81,https://stockanalysis.com/stocks/tsla/history/,matched_external_ohlc_not_original_download_metadata
+HistoricalData_1789062908746.csv,META,2026-09-09,648.64,657.86,638.56,653.69,https://stockanalysis.com/stocks/meta/history/,matched_external_ohlc_not_original_download_metadata
+HistoricalData_1789062984999.csv,AMAT,2026-09-09,466.66,474.04,463.78,468.85,https://ir.appliedmaterials.com/stock-information/historical-price-lookup/,matched_external_ohlc_not_original_download_metadata
+HistoricalData_1789063037856.csv,WMT,2026-09-09,105.69,106.145,105.16,105.83,https://stockanalysis.com/stocks/wmt/history/,matched_external_ohlc_not_original_download_metadata
+HistoricalData_1789063083529.csv,LRCX,2026-09-09,319.26,322.21,312.76,315.84,https://stockanalysis.com/stocks/lrcx/history/,matched_external_ohlc_not_original_download_metadata
+HistoricalData_1789063100518.csv,COST,2026-09-09,907.00,909.2299,898.43,902.60,https://stockanalysis.com/stocks/cost/history/,matched_external_ohlc_not_original_download_metadata
+HistoricalData_1789063127913.csv,MU,2026-09-09,998.805,1042.40,992.29,1027.77,https://stockanalysis.com/stocks/mu/history/,matched_external_ohlc_not_original_download_metadata
+HistoricalData_1789063143301.csv,AVGO,2026-09-09,366.23,368.01,359.25,364.38,https://stockanalysis.com/stocks/avgo/history/,matched_external_ohlc_not_original_download_metadata
+HistoricalData_1789063162455.csv,CSCO,2026-09-09,109.275,110.43,108.98,109.43,https://stockanalysis.com/stocks/csco/history/,matched_external_ohlc_not_original_download_metadata
+HistoricalData_1789063180664.csv,LIN,2026-09-09,468.38,468.38,463.37,466.65,https://stockanalysis.com/stocks/lin/history/,matched_external_ohlc_not_original_download_metadata
