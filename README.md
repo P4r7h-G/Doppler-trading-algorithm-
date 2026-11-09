@@ -1,5 +1,101 @@
-# Supplied prior-study artifacts: unverified archive
+Doppler vs GARCH event volatility research
 
-The three neighboring files were copied from the user's Downloads folder on 30 October 2026. They are retained exactly as supplied so a reviewer can inspect the earlier claims. They are **not** the raw event-level forecasts, complete event-source map, executable prior scripts or identified price series needed to reproduce the reported AAPL and 11-company findings.
+Reproducible, point-in-time **conditional variance** research for scheduled equity events. The package computes transparent daily spectral features, fits a Gaussian GARCH(1,1), and compares both against state-only and event-aware baselines on the same out-of-sample events. It accepts user-owned CSVs through a CLI or local Streamlit dashboard.
 
-`KEY_RESULTS.csv` and `holdout_2026_metrics.csv` are aggregate tables. Their figures must not be presented as measurements produced by the current package. `MULTI_COMPANY_RESEARCH_REPORT.md` describes a prior specification with a particular 2020–2025/2026 evaluation design; the current `0.1.0` pipeline is a fresh, transparent implementation that may differ in other details. Historical claims are research leads pending a full independent rerun.
+**Current evidence status:** This repository does **not** reproduce the earlier AAPL + 11-company results. Twelve user-uploaded NASDAQ-format OHLCV files and an older Apple package were recovered. Their ticker identities were matched against published 9 September 2026 OHLC values, but original ticker metadata and vendor adjustment documentation were not preserved. The Apple package contains 43 earnings rows sourced to post-event Newsroom pages; it does not establish that dates and sessions were known before each forecast. Other-company dated events and prior event-level forecasts are missing. Local dataset ZIPs with the available rows are under ignored `private_data/dataset_packages`; the three ZIPs in [`data/packages`](data/packages) are **public, zero-row schema placeholders**. The supplied historical report and aggregate result tables are archived under [`research/prior_unverified`](research/prior_unverified) for traceability, not endorsed as reproduced results. Do not cite those figures as outcomes from this code.
+
+## Quick start
+
+Requires Python 3.10+.
+
+On Windows PowerShell, create and activate the environment with `py -m venv .venv` and `.\.venv\Scripts\Activate.ps1`. On macOS/Linux, use `python3 -m venv .venv` and `source .venv/bin/activate`. Then run the commands below in that environment.
+
+```bash
+python -m pip install -e ".[test,dashboard]"
+python -m pytest -q
+python scripts/make_synthetic_demo.py
+doppler-research run --prices examples/synthetic/prices.csv --events examples/synthetic/events.csv --output outputs/synthetic
+doppler-research forecast-next --prices examples/synthetic/prices.csv --events examples/synthetic/events_with_next.csv --event-id SYNTH-NEXT --output outputs/synthetic_next
+streamlit run src/doppler_research/dashboard.py
+```
+
+The synthetic run checks installation only. Its scores do not establish market performance. The dashboard runs locally; uploaded files remain in that process. A hosted dashboard operator would have access to uploads, so use local deployment for proprietary data.
+
+Docker dashboard:
+
+```bash
+docker build -t doppler-garch .
+docker run --rm -p 8501:8501 doppler-garch
+```
+
+Visit `http://localhost:8501`. The Docker image contains code and blank templates, no private prices.
+
+## Input contracts
+
+Use UTF-8 CSV with ISO `YYYY-MM-DD` dates and one row per ticker/trading day or event. See [`data/templates`](data/templates). Price fields: `ticker,date,open,high,low,close,volume,adjustment,source`. OHLC must all be positive and on the **same split-adjusted basis**; `adjustment` must say `split_adjusted`. That label is a data-owner attestation, not something this code can verify. Prices may be dividend-adjusted if all OHLC fields share the same basis, but record that detail in `source` and do not mix bases. Duplicate dates, impossible ranges, missing values, unknown adjustment and negative volume fail validation.
+
+Event fields: `event_id,ticker,announcement_date,session,event_type,source_url,verified_at,confidence`. `session` is `after_close`, `before_open`, `during_session`, or `unknown`; only the first two qualify. `confidence` is `verified`, `reported`, or `unverified`; only `verified` qualifies. `verified_at` is the date that an advance notice established the scheduled date and session; it **must precede** `announcement_date`. A later press release can verify what happened historically but does not prove that the timing was known at the forecast origin. `source_url` must identify the advance notice. Keep unexpected product releases in the dataset as `unverified` or `unknown` and expect them to be excluded from this prospective test.
+
+For an after-close event, the forecast origin is that day's regular-session close and the reaction is the next trading session. For a before-open event, the origin is the prior close and the reaction is the event day's session. Events on non-trading dates are excluded and reported. No nearest-date guess is made. The event date must be present in the price table.
+
+Convert a user-owned NASDAQ-format download with an **explicit** ticker and adjustment attestation:
+
+```bash
+doppler-research convert-nasdaq --input my_download.csv --ticker AAPL --source "NASDAQ download; retrieved YYYY-MM-DD; adjustment reviewed by owner" --adjustment split_adjusted --output private_data/aapl_prices.csv
+doppler-research validate --prices private_data/aapl_prices.csv --events private_data/aapl_events.csv
+doppler-research run --prices private_data/aapl_prices.csv --events private_data/aapl_events.csv --config config.example.json --output outputs/aapl
+```
+
+For a multi-company run, concatenate canonical price rows and event rows into one CSV each. The program never infers ticker identity while processing inputs. The local recovered files are under ignored `private_data/recovered_uploads`; their checksums and external OHLC matches are listed in [`data/recovered_upload_manifest.json`](data/recovered_upload_manifest.json) and [`data/price_file_matches.csv`](data/price_file_matches.csv). A match identifies a likely ticker; it is not the original download metadata. Price adjustment remains `unknown` in the local archival ZIPs and is rejected by the modelling validator until reviewed.
+
+Once the inputs are identified and validated, create three separate data ZIPs:
+
+```bash
+doppler-research package-data --prices private_data/all_prices.csv --events private_data/all_events.csv --output private_data/dataset_packages
+```
+
+The command makes `01_aapl_events.zip`, `02_aapl_prices.zip`, and `03_other_companies.zip`, each with CSVs and a manifest containing row counts and SHA-256 checksums. It requires both AAPL and other-company verified event rows. Product announcements belong in the event CSV with their actual type and pre-event timing evidence. Missing events remain missing, not filled from a model. The recovered local ZIPs have different names and remain archival because their timing/adjustment checks are incomplete. **Review your market-data and event-source redistribution rights before sharing populated ZIPs.** The software's MIT license does not grant rights to third-party data. [Nasdaq's site terms](https://www.nasdaq.com/legal) impose restrictions on site content use and redistribution; use a license that covers your intended research and recipients.
+
+## Model and feature specification
+
+All model forecasts target a **one-reaction-session conditional variance proxy**, never a deterministic price. Default target is squared close-to-close log return, `y = log(C_reaction/C_origin)^2`. Optional `gap_parkinson` is `log(O_reaction/C_origin)^2 + log(H_reaction/L_reaction)^2/(4 log 2)`. This range/gap proxy is an alternate noisy target, not the same object as a close-to-close squared return. The one-step GARCH forecast is compared to it as a diagnostic; its event-adjusted version is a fairer event-aware comparator. Do not compare raw QLIKE levels across different targets.
+
+The Doppler label is an **analogy**, not a claim of physical Doppler physics or a demonstrated trading edge. For each forecast origin, use daily log returns ending at that origin:
+
+- 60 older returns, indices `[-80:-20]`, form the baseline spectrum.
+- 20 most recent returns, indices `[-20:]`, form the recent spectrum.
+- Each window is demeaned, multiplied by a Hann taper, transformed with a real FFT, and its nonzero-frequency power interpolated onto a fixed 32-point grid from `1/60` to `0.5` cycles/session.
+- Normalize each power vector to sum to one. With spectra `P` and `Q` and `M=(P+Q)/2`, Jensen–Shannon deformation is `JS = 0.5 KL(P||M) + 0.5 KL(Q||M)` with natural logs. It measures **magnitude**, not direction.
+- The signed frequency shift is `z_f = log(centroid_recent / centroid_baseline)` where centroid is the power-weighted frequency. Positive values shift toward higher frequency.
+- `js_velocity` and `centroid_velocity` are one-session first differences; `js_acceleration` and `centroid_acceleration` are second differences, computed from snapshots ending at origin, origin minus one, and origin minus two. These use 82 returns total.
+- `log_energy_recent`, `log_energy_ratio` and `high_energy_share` retain power-scale and high-band information. Zero-energy windows use a uniform spectrum with a small numerical floor for log energy.
+
+The state controls are trailing mean squared return over 20 sessions (`rv20`) and the current log-volume z-score in a 60-session window. The event-aware control is the log mean of **earlier observed reactions for the same ticker and event type**. `historical_event_mean` and `historical_event_median` predict with that same strictly prior sample.
+
+GARCH is refitted from price returns available at every forecast origin. In percent-return units, `epsilon_t = 100*r_t - mu` and `h_t = omega + alpha*epsilon_(t-1)^2 + beta*h_(t-1)`. Gaussian quasi maximum likelihood minimizes `0.5 Σ[log(2πh_t)+epsilon_t²/h_t]`, subject to `omega>0`, `alpha,beta>=0`, `alpha+beta<0.999`; `h_0` is the sample residual variance. The next variance forecast is `(omega + alpha*epsilon_T² + beta*h_T)/10000`. Per-event `omega`, `alpha`, `beta`, sample mean, fit size and negative log likelihood are exported in `event_features.csv`. A failed fit excludes that event with a reason. This is a transparent baseline, not a claim that Gaussian innovations fit every asset.
+
+The models are `garch`, `historical_event_mean`, `historical_event_median`, `event_adjusted_garch` (GARCH times the earlier same-ticker/event-type mean target-to-GARCH ratio), `state_only`, `doppler_only`, `doppler_state`, `event_state`, and `event_state_doppler`. Ridge models predict log variance using a fixed penalty from the configuration and ticker fixed effects (one reference ticker absorbed by the intercept). Feature centering and scaling, ticker categories, coefficients and event baselines are recomputed only from earlier **fully observed** events; no random split or future normalization is used. This is **not an exact reimplementation** of the archived study: its executable scripts and event-level inputs are missing, and its described training schedule may differ. Version 0.1.0 is a newly specified, inspectable benchmark; its outputs must be labeled as such.
+
+## Scores and diagnostics
+
+`run` writes `event_features.csv`, `skipped_events.csv`, `per_event_forecasts.csv`, `common_sample_scores.csv`, `bootstrap_comparisons.csv`, and `run_manifest.json` with input checksums/configuration. A row can train a later forecast only when its reaction closed **before** that forecast's as-of date. All headline models are scored on the same event-ID intersection. Scores are pooled and per ticker. QLIKE is `log(predicted_variance) + observed_proxy/predicted_variance` (lower is better); MAE and RMSE are in variance units. Each event also gets its own QLIKE and errors. Variance forecasts have a positive numerical floor. Never interpret a negative QLIKE as a negative variance.
+
+Paired diagnostics compare Doppler-only vs GARCH, Doppler+state vs state, and event+state+Doppler vs event+state and historical event mean. Calendar quarters are resampled with replacement and the paired mean QLIKE difference is recomputed; the 95% percentile interval is exploratory, especially for small samples or many model/target comparisons. The random seed and replicate count are recorded. No p-value or trading profitability claim is made.
+
+Optional historical price intervals require an explicit drift assumption:
+
+```bash
+doppler-research run --prices private_data/all_prices.csv --events private_data/all_events.csv --output outputs/study --drift-log-return 0.0
+```
+
+`0.0` is an **assumption of zero log-return drift**, not a learned directional forecast. For each model/event, the interval uses the 2.5% and 97.5% empirical quantiles of standardized returns from **at least 40 earlier out-of-sample events**, scaled by its variance forecast and applied to the as-of close. Rows without that calibration history are omitted. Coverage is not guaranteed; assess it on a separate untouched sample. These intervals are scenarios conditioned on drift and variance assumptions, not point price predictions.
+
+For a newly scheduled **after-close** event at the latest available regular-session close, add its verified calendar row to the events CSV and run `forecast-next`. It produces `next_event_variance_forecasts.csv` without using an unavailable reaction price. Supply `--drift-log-return` to request `next_event_price_intervals.csv`; it remains empty unless at least 40 prior out-of-sample events are available for calibration. No point price is emitted. The synthetic example above includes a `SYNTH-NEXT` row solely to exercise this command.
+
+## Research limitations and reproducibility
+
+- Earlier aggregate scores cannot be reconstructed from a report and summary tables alone. The event-level predictions, full event-source map and executable prior multi-company scripts are needed. The archived report itself says the immediate Doppler gain over state/event baselines was weak or absent; no unique frequency edge should be marketed from it.
+- Market-data rights, split/dividend adjustment, ticker changes, missing sessions, schedule revisions and verified announcement timing must be resolved for each input. A hash establishes file identity, not correctness or a redistribution license. The recovered WMT file has one inconsistent OHLC row on 5 June 2023, flagged in `DATA_STATUS.md` and the local package manifest; the validator rejects it until reviewed.
+- Daily 20/60-session spectra are coarse. The stronger original hypothesis concerns intraday changes as time to a known catalyst approaches zero. Do not tune this daily specification repeatedly on the prior panel and then call the result confirmatory.
+- Squared returns and range proxies are noisy measurements of latent variance. GARCH does not know a scheduled event is imminent; the historical event and event-adjusted baselines are therefore essential. A model can improve QLIKE yet worsen MAE/RMSE.
+- Forecasts depend on event selection, adjusted price basis, data access and fixed hyperparameters. A real validation needs untouched future events or companies, predefined targets and thresholds, and an independent data audit.
