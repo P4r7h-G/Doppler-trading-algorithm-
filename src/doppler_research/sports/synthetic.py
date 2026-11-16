@@ -67,7 +67,7 @@ def generate(n_fixtures: int = 48, hours_before_kickoff: float = 9.0, seed: int 
 
         t0 = ko - pd.Timedelta(hours=hours_before_kickoff)
         n = int(hours_before_kickoff * 3600 / STEP_SECONDS)
-        times = t0 + pd.to_timedelta(np.arange(n) * STEP_SECONDS, unit="s")
+        times = (t0 + pd.to_timedelta(np.arange(n) * STEP_SECONDS, unit="s")).asi8
         sec = np.arange(n) * STEP_SECONDS
         liquidity = float(np.exp(rng.uniform(np.log(800), np.log(40000))))
         base_sigma = rng.uniform(0.002, 0.006)
@@ -108,6 +108,10 @@ def generate(n_fixtures: int = 48, hours_before_kickoff: float = 9.0, seed: int 
         suspend = (i % 3 == 0) and i != special["simultaneous"]
         susp_lo, susp_hi = injury_s - 5, injury_s + rng.uniform(60, 120)
         gap_lo, gap_hi = (injury_s - 7200, injury_s - 6600) if i == special["reconnect"] else (np.inf, np.inf)
+        half = 0.004 + 0.02 / np.sqrt(liquidity / 1000)
+        backs = _tick_floor(1 / np.minimum(probs * (1 + half), 0.995))
+        lays = _tick_ceil(1 / np.maximum(probs * (1 - half), 0.001))
+        lays = np.where(lays <= backs, _tick_ceil(backs + 1e-9), lays)
         last = {r: (None, None, -1e9) for r in sel}
         suspended_emitted = False
         reconnect_pending = False
@@ -120,16 +124,12 @@ def generate(n_fixtures: int = 48, hours_before_kickoff: float = 9.0, seed: int 
                 if not suspended_emitted:
                     seq += 1
                     for role in sel:
-                        quotes.append(_row(market_id, sel[role], times[k], rng, "SUSPENDED", np.nan, np.nan,
-                                           np.nan, np.nan, seq, False))
+                        quotes.append(_row(market_id, sel[role], times[k], _latency_ns(rng), "SUSPENDED",
+                                           np.nan, np.nan, np.nan, np.nan, seq, False))
                     suspended_emitted = True
                     last = {r: (None, None, -1e9) for r in sel}
                 continue
-            p = probs[k]
-            half = 0.004 + 0.02 / np.sqrt(liquidity / 1000)
-            back = _tick_floor(1 / np.minimum(p * (1 + half), 0.995))
-            lay = _tick_ceil(1 / np.maximum(p * (1 - half), 0.001))
-            lay = np.where(lay <= back, _tick_ceil(back + 1e-9), lay)
+            p, back, lay = probs[k], backs[k], lays[k]
             changed = [r for j, r in enumerate(sel) if (back[j], lay[j]) != last[r][:2] or s - last[r][2] >= 300]
             if reconnect_pending:
                 changed = list(sel)
@@ -140,9 +140,10 @@ def generate(n_fixtures: int = 48, hours_before_kickoff: float = 9.0, seed: int 
                 if role not in changed:
                     continue
                 size_scale = liquidity * p[j]
-                quotes.append(_row(market_id, sel[role], times[k], rng, "OPEN", back[j],
-                                   float(np.round(size_scale * rng.lognormal(0, 0.5), 2)), lay[j],
-                                   float(np.round(size_scale * rng.lognormal(0, 0.5), 2)), seq, reconnect_pending))
+                back_size = float(np.round(size_scale * rng.lognormal(0, 0.5), 2))
+                lay_size = float(np.round(size_scale * rng.lognormal(0, 0.5), 2))
+                quotes.append(_row(market_id, sel[role], times[k], _latency_ns(rng), "OPEN", back[j], back_size,
+                                   lay[j], lay_size, seq, reconnect_pending))
                 last[role] = (back[j], lay[j], s)
             reconnect_pending = False
 
@@ -167,7 +168,13 @@ def generate(n_fixtures: int = 48, hours_before_kickoff: float = 9.0, seed: int 
                 news.append(rumour)
             news.append(row)
 
-    q = pd.DataFrame(quotes)
+    q = pd.DataFrame(quotes, columns=QUOTE_FIELDS)
+    for col in ("provider_published_at_utc", "received_at_utc"):
+        ms = q[col].to_numpy().astype("datetime64[ns]").astype("datetime64[ms]")
+        q[col] = np.char.add(np.datetime_as_string(ms, unit="ms"), "Z")
+    q.insert(0, "venue", "SYNEX")
+    q.insert(q.columns.get_loc("reconnect"), "in_play", False)
+    q["source"] = TAG
     # Inject quality failures that the validator must reject and report.
     dup = q[q["status"] == "OPEN"].sample(25, random_state=seed)
     crossed = q[q["status"] == "OPEN"].sample(5, random_state=seed + 1).copy()
@@ -182,12 +189,17 @@ def generate(n_fixtures: int = 48, hours_before_kickoff: float = 9.0, seed: int 
             "fixtures_results": pd.DataFrame(fixtures)}
 
 
-def _row(market_id, selection_id, ts, rng, status, back, back_size, lay, lay_size, seq, reconnect) -> dict:
-    received = ts + pd.Timedelta(milliseconds=float(rng.lognormal(np.log(120), 0.5)))
-    return {"venue": "SYNEX", "market_id": market_id, "selection_id": selection_id,
-            "provider_published_at_utc": _iso(ts), "received_at_utc": _iso(received), "status": status,
-            "best_back_odds": back, "best_back_size": back_size, "best_lay_odds": lay, "best_lay_size": lay_size,
-            "sequence": seq, "in_play": False, "reconnect": bool(reconnect), "source": TAG}
+QUOTE_FIELDS = ["market_id", "selection_id", "provider_published_at_utc", "received_at_utc", "status",
+                "best_back_odds", "best_back_size", "best_lay_odds", "best_lay_size", "sequence", "reconnect"]
+
+
+def _latency_ns(rng: np.random.Generator) -> int:
+    return round(float(rng.lognormal(np.log(120), 0.5)) * 1_000_000)
+
+
+def _row(market_id, selection_id, ts_ns, latency_ns, status, back, back_size, lay, lay_size, seq, reconnect) -> tuple:
+    return (market_id, selection_id, ts_ns, ts_ns + latency_ns, status, float(back), back_size, float(lay),
+            lay_size, seq, bool(reconnect))
 
 
 def write(output: Path, **kwargs) -> dict[str, int]:
