@@ -4,9 +4,12 @@ Uploads stay inside this process; nothing is sent to an external endpoint.
 """
 from __future__ import annotations
 
+import ctypes
+import gc
 import io
 import json
 from pathlib import Path
+import shutil
 import sys
 import tempfile
 import zipfile
@@ -79,24 +82,43 @@ def build_config() -> SportsConfig:
                                           "permitted_use": use, "capture_method": "dashboard_upload"})
 
 
+def _release_memory() -> None:
+    gc.collect()
+    try:
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except (OSError, AttributeError):
+        pass
+
+
 if run:
+    # Small hosted machines (about 1 GB) cannot hold two studies at once.
+    st.session_state.pop("study", None)
+    _release_memory()
     try:
         config = build_config()
         if source == "Synthetic demo":
             with st.spinner("Generating synthetic markets"):
                 tables = generate(n_fixtures=n_fix)
                 blobs = {k: (f"{k}.csv", v.to_csv(index=False).encode()) for k, v in tables.items()}
+                del tables
         frames, manifest = load_blobs(blobs, config.data_declaration)
+        del blobs
+        gc.collect()
         out_dir = Path(tempfile.mkdtemp(prefix="sports_study_"))
         status = st.status("Running study", expanded=False)
         result = run_study(frames, manifest, config, out_dir, progress=status.write)
+        del frames
         status.update(label="Study complete", state="complete")
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
             for p in sorted(out_dir.rglob("*")):
                 if p.is_file():
                     zf.write(p, p.relative_to(out_dir))
-        st.session_state["study"] = {"result": result, "config": config, "zip": buffer.getvalue()}
+        shutil.rmtree(out_dir, ignore_errors=True)
+        kept = {k: result[k] for k in ("manifest", "artifacts", "traces")}
+        del result
+        st.session_state["study"] = {"result": kept, "config": config, "zip": buffer.getvalue()}
+        _release_memory()
     except (ValueError, KeyError) as exc:
         st.error(f"{type(exc).__name__}: {exc}")
 
