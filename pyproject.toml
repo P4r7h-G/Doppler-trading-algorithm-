@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dashboard = ["streamlit>=1.35,<2"]
+dashboard = ["streamlit>=1.50,<2"]
 parquet = ["pyarrow>=14"]
 test = ["pytest>=8,<10"]
 

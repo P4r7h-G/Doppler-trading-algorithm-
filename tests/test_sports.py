@@ -443,3 +443,22 @@ def test_cli_end_to_end(tmp_path, capsys):
     keys = capsys.readouterr().out.split()
     main(["sports", "explain", "--run", str(tmp_path / "run"), "--event-key", keys[-1]])
     assert "Audit trail" in capsys.readouterr().out
+
+
+def test_dashboard_runs_synthetic_demo_headless():
+    pytest.importorskip("streamlit")
+    from pathlib import Path
+    from streamlit.testing.v1 import AppTest
+    app = Path(__file__).resolve().parents[1] / "src" / "doppler_research" / "sports" / "dashboard.py"
+    at = AppTest.from_file(str(app), default_timeout=600)
+    at.run()
+    at.sidebar.slider[0].set_value(16)
+    at.sidebar.number_input[1].set_value(8)
+    at.sidebar.number_input[2].set_value(100)
+    at.sidebar.checkbox[0].uncheck()
+    at.sidebar.checkbox[1].uncheck()
+    at.sidebar.button[0].click()
+    at.run()
+    assert not at.exception and not at.error
+    assert len(at.tabs) == 8
+    assert at.code and "Audit trail" in at.code[0].value
