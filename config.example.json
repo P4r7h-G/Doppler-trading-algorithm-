@@ -1,0 +1,10 @@
+{
+  "min_train_events": 12,
+  "min_garch_returns": 120,
+  "min_prior_ticker_events": 2,
+  "ridge_alpha": 10.0,
+  "bootstrap_replicates": 1000,
+  "seed": 17,
+  "target": "squared_return",
+  "bootstrap_cluster": "calendar_quarter"
+}

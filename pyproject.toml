@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "doppler-garch-research"
+version = "0.2.0"
+description = "Point-in-time event volatility research with transparent spectral features and GARCH, for equities and sports exchange markets"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.26,<3",
+    "pandas>=2.0,<3",
+    "scipy>=1.11,<2",
+]
+
+[project.optional-dependencies]
+dashboard = ["streamlit>=1.35,<2"]
+parquet = ["pyarrow>=14"]
+test = ["pytest>=8,<10"]
+
+[project.scripts]
+doppler-research = "doppler_research.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

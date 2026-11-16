@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+.pytest_cache/
+
+# Proprietary or licensed inputs and all run outputs stay local.
+private_data/
+outputs/
+examples/sports_synthetic/
