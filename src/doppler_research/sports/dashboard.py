@@ -198,18 +198,38 @@ with tabs[2]:
                    "in the lineage tables.")
 
 with tabs[3]:
-    keys = sorted(traces)
+    only_forecast = st.checkbox("Only events with at least one forecast", True,
+                                help="Early events have no forecast until enough earlier events are fully observed.")
+    keys = sorted(k for k, t in traces.items()
+                  if not only_forecast or any(b["models"] for b in t.horizons.values()))
     if keys:
         col1, col2, col3 = st.columns(3)
-        key = col1.selectbox("Event", keys, key="audit_event")
+
+        def has_full_forecast(k: str) -> bool:
+            return any((b["models"].get("event_state_doppler") or {}).get("forecast") is not None
+                       for b in traces[k].horizons.values())
+
+        default = next((i for i, k in enumerate(keys) if has_full_forecast(k)), 0)
+        key = col1.selectbox("Event", keys, index=default, key="audit_event")
         trace = traces[key].to_dict()
         hs = sorted(trace["horizons"], key=int)
-        h = col2.selectbox("Horizon", hs, key="audit_h") if hs else None
+        with_models = [x for x in hs if (trace["horizons"][x]["models"].get("event_state_doppler") or {})
+                       .get("forecast") is not None] or [x for x in hs if trace["horizons"][x]["models"]]
+        h = col2.selectbox("Horizon", hs, index=hs.index(with_models[0]) if with_models else 0,
+                           key=f"audit_h_{key}") if hs else None
         model_names = sorted(trace["horizons"][h]["models"]) if h else []
         model = col3.selectbox("Model", model_names,
                                index=model_names.index("event_state_doppler") if "event_state_doppler" in model_names
                                else 0) if model_names else None
         m = trace["horizons"][h]["models"].get(model) if model else None
+        if h and not model_names:
+            skips = a["forecast_skips"]
+            reasons = skips[(skips["event_key"] == key.split("::")[-1]) & (skips["panel"] == trace["panel"]) &
+                            (skips["horizon_minutes"] == int(h))] if not skips.empty else skips
+            st.info("No forecasts at this horizon. " + "; ".join(
+                sorted({f"{r.reason} ({r.detail})" for r in reasons.itertuples()}) or {"see Exclusions"}))
+        elif m and m.get("forecast") is None:
+            st.info(f"{model} produced no forecast for this event: {m.get('detail')}")
         if m and m.get("terms"):
             terms = pd.DataFrame(m["terms"])
             terms["source_function"] = terms["term"].map(lambda t: FEATURE_REGISTRY.get(t, {}).get("function", ""))
