@@ -75,12 +75,17 @@ def parser() -> argparse.ArgumentParser:
     n.add_argument("--config", type=Path)
     n.add_argument("--drift-log-return", type=float,
                    help="Explicit drift assumption; requires 40 earlier OOS events for a price interval")
+    from .sports.cli import add_parser as add_sports_parser
+    add_sports_parser(sub)
     return p
 
 
 def main(argv: list[str] | None = None) -> None:
     args = parser().parse_args(argv)
-    if args.command == "validate":
+    if args.command == "sports":
+        from .sports.cli import main as sports_main
+        sports_main(args)
+    elif args.command == "validate":
         a = validate_prices(pd.read_csv(args.prices))
         b = validate_events(pd.read_csv(args.events))
         print(json.dumps({"prices": len(a), "events": len(b), "tickers": sorted(a.ticker.unique().tolist())}))
