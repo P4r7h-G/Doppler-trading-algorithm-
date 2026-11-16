@@ -91,11 +91,13 @@ def origin_features(replay: MarketReplay, selection_id: str, origin_ns: int, con
     if lineage is not None:
         w, k = spec.window_steps, spec.baseline_windows
         for i in range(len(state.times_ns)):
+            # Segment of the increment ending at this grid point; baseline_1 is nearest the recent window.
             back = len(state.times_ns) - 1 - i
-            seg = ("origin" if back == 0 else "recent" if back <= w else
-                   f"baseline_{(back - 1) // w}" if back <= w * (k + 1) else "history_only")
+            seg = ("history_only" if i == 0 else "recent" if back < w else
+                   f"baseline_{back // w}" if back < w * (k + 1) else "history_only")
             lineage.append({"event_key": trace.event_key, "panel": trace.panel,
-                            "grid_time_utc": ns_iso(int(state.times_ns[i])), "segment": seg,
+                            "grid_time_utc": ns_iso(int(state.times_ns[i])), "is_origin": back == 0,
+                            "increment_segment_at_origin_snapshot": seg,
                             "valid": bool(state.valid[i]), "reason": state.reason[i],
                             "probability": state.probability(config.probability_basis)[i],
                             "logit": x[i], "increment": dx[i - 1] if i else np.nan,
