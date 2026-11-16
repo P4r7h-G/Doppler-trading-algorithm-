@@ -7,12 +7,18 @@ from __future__ import annotations
 import io
 import json
 from pathlib import Path
+import sys
 import tempfile
 import zipfile
 
 import altair as alt
 import pandas as pd
 import streamlit as st
+
+# Hosts such as Streamlit Community Cloud run this file without installing the package.
+_SRC = Path(__file__).resolve().parents[2]
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
 
 from doppler_research.sports.audit import FEATURE_REGISTRY, explain
 from doppler_research.sports.config import SportsConfig
